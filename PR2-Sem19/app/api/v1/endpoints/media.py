@@ -544,18 +544,39 @@ async def universal_transcribe(
                     transcript=transcript_text,
                 )
 
-            if format == "text":
-                return Response(
-                    content=tiktok_result.get("content") or tiktok_result.get("transcript", ""),
-                    media_type="text/plain",
+            if format in ("text", "srt", "vtt"):
+                from app.utils.formatters import format_as_srt, format_as_vtt
+                from app.models.schemas import TranscriptSegment
+
+                transcript_fallback = (
+                    tiktok_result.get("transcript") or tiktok_result.get("content") or ""
                 )
-            elif format == "vtt":
-                return Response(content=tiktok_result.get("content") or "", media_type="text/vtt")
-            elif format == "srt":
-                return Response(
-                    content=tiktok_result.get("content") or tiktok_result.get("transcript", ""),
-                    media_type="text/plain",
-                )
+                if format == "text":
+                    return Response(content=transcript_fallback, media_type="text/plain")
+
+                # SRT/VTT must be real subtitle files, not the raw transcript. TikTok
+                # caption segments carry per-line timings, so build TranscriptSegment
+                # objects and run them through the same formatters as the ASR/YouTube
+                # paths. Falls back to the plain transcript if timings are unusable.
+                seg_objs = []
+                for s in (tiktok_result.get("segments") or []):
+                    try:
+                        start = float(s.get("start", 0.0))
+                        end = float(s.get("end", 0.0))
+                        if end <= start:
+                            end = start + 0.1  # satisfy end>start; keep a visible cue
+                        seg_objs.append(
+                            TranscriptSegment(text=s.get("text", ""), start=start, end=end)
+                        )
+                    except (TypeError, ValueError):
+                        continue
+
+                if format == "srt":
+                    body = format_as_srt(seg_objs) if seg_objs else transcript_fallback
+                    return Response(content=body, media_type="text/plain")
+                else:  # vtt
+                    body = format_as_vtt(seg_objs) if seg_objs else transcript_fallback
+                    return Response(content=body, media_type="text/vtt")
             else:
                 return TranscriptionResponse(
                     status="completed",
