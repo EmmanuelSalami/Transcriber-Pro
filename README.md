@@ -37,8 +37,10 @@ It also uses a few outside services for specific jobs. **None are required to ju
 | --- | --- | --- |
 | **A database** (Postgres) | Remembering accounts and past transcripts | Only needed if they want sign-in/history. Easiest free option: [neon.tech](https://neon.tech) → "New Project" → copy the connection string it shows. |
 | **RunPod** | Transcribing *uploads* and non-caption videos using a GPU in the cloud | Only needed if local transcription is too slow for them. [runpod.io](https://www.runpod.io) → account settings → API key. |
-| **Webshare** | A proxy so Instagram and some TikToks will download | Optional. YouTube + most TikTok work without it. [webshare.io](https://www.webshare.io) → residential proxy → API key. |
+| **Webshare** (residential proxy) | Lets the server fetch videos through a home-style IP | **Required when hosting online** (Path B) — see the note below. Optional on your own computer. [webshare.io](https://www.webshare.io) → buy *residential* proxies → API key. |
 | **S3 storage** | Holding big uploaded files in the cloud | Only for the online version. Any S3-compatible bucket; the local version uses the computer's disk instead. |
+
+> **⚠️ The Webshare rule — this trips people up.** YouTube (and to a lesser extent TikTok and Instagram) **block requests coming from data-centre servers**. Your own computer has a normal "residential" home internet address, so on **Path A (local) everything works with no proxy**. But a hosted server (Render, a VPS, etc.) has a data-centre address, so on **Path B (online) you need a Webshare *residential* proxy or YouTube transcription will fail** — set `WEBSHARE_API_KEY`. It also improves TikTok and Instagram reliability. Buy the *residential* plan, not the cheaper datacenter one.
 
 > **Billing is OFF by default.** This copy does not charge anyone and needs no Stripe. Everyone who signs in gets unlimited transcription. (The paid-credits system is still in the code behind a switch — see *Turning on billing* at the bottom — but you can ignore it entirely.)
 
@@ -86,7 +88,7 @@ Do Path A first and confirm it works locally. Then deploy. The simplest host is 
 
 1. Push this project to the person's own GitHub account (you can do this for them).
 2. On [render.com](https://render.com): **New → Blueprint**, point it at their repo. Render reads `render.yaml`.
-3. Render will ask for the secret values (marked `sync: false`). Walk the person through each one using the table above and the comments in the two `.env.example` files. At minimum for the online version: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `API_KEYS` / `NEXT_PUBLIC_API_KEY` (same value), and `RUNPOD_API_KEY` + `RUNPOD_ENDPOINT_ID` if they want to transcribe uploads.
+3. Render will ask for the secret values (marked `sync: false`). Walk the person through each one using the table above and the comments in the two `.env.example` files. At minimum for the online version: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `API_KEYS` / `NEXT_PUBLIC_API_KEY` (same value), **`WEBSHARE_API_KEY` (required — without it YouTube transcription fails from a hosted server; see the Webshare rule above)**, and `RUNPOD_API_KEY` + `RUNPOD_ENDPOINT_ID` if they want to transcribe uploads.
 4. Deploy. Render gives them a public link.
 
 ---
@@ -109,7 +111,7 @@ If only JSON comes back and the others are blank, the format isn't being passed 
 
 - **Frontend:** Next.js (App Router, TypeScript) at the repo root. Dev: `npm run dev` (port 3000). A proxy route (`app/api/v1/[...path]/route.ts`) forwards `/api/v1/*` to the Python backend.
 - **Backend:** FastAPI in `PR2-Sem19/`, managed with Poetry. Dev: `poetry run uvicorn app.main:app --port 8000`. Docker: `docker-compose.yml` (prod-ish), `docker-compose.dev.yml` (with MinIO/Redis), `docker-compose.gpu.yml` (local GPU).
-- **Transcription paths:** YouTube captions (free, no GPU) → TikTok captions / tikwm → Whisper ASR (local CPU model, or RunPod serverless for scale). Instagram and some TikToks need a Webshare residential proxy.
+- **Transcription paths:** YouTube captions (free, no GPU) → TikTok captions / tikwm → Whisper ASR (local CPU model, or RunPod serverless for scale). YouTube transcript fetching and yt-dlp downloads route through a Webshare residential proxy when `WEBSHARE_API_KEY` is set (`youtube_captions.py` via `WebshareProxyConfig`; `social_media_service.py` / `audio_download_service.py` via proxy URL). This is mandatory from a datacenter host because YouTube blocks datacenter IPs; on a residential/local IP it's optional.
 - **Database:** Postgres (Neon recommended). Schema/migrations live in `scripts/migrations/` and `PR2-Sem19/migrations/`. Auth is Better Auth (email + optional Google OAuth).
 - **Config:** every setting is an environment variable with a safe default — see `PR2-Sem19/env.example` (backend) and `.env.example` (frontend). No secrets ship in this repo.
 - **Turning on billing:** set `BILLING_ENABLED=true`, configure the `STRIPE_*` keys, and set `OWNER_EMAILS` for your own unlimited accounts. Off by default; everyone is unlimited when off.
