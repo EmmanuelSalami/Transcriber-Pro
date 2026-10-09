@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcription-api
+  labels:
+    app: transcription-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: transcription-api
+  template:
+    metadata:
+      labels:
+        app: transcription-api
+    spec:
+      containers:
+      - name: api
+        image: your-registry/transcription-api:latest
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcription-config
+              key: redis-host
+        - name: REDIS_PORT
+          value: "6379"
+        - name: S3_BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: transcription-config
+              key: s3-bucket-name
+        - name: S3_ENABLED
+          value: "true"
+        - name: S3_REGION
+          value: "us-east-1"
+        envFrom:
+        - secretRef:
+            name: transcription-secrets
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: transcription-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcription-api
+  labels:
+    app: transcription-api
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: transcription-api
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transcription-config
+data:
+  redis-host: "redis-service.default.svc.cluster.local"
+  redis-port: "6379"
+  s3-bucket-name: "transcription-storage"
+  s3-region: "us-east-1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: transcription-secrets
+type: Opaque
+stringData:
+  api-keys: "your-api-keys-here"
+  s3-access-key-id: "your-access-key"
+  s3-secret-access-key: "your-secret-key"
+  redis-password: "your-redis-password"

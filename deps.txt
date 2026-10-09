@@ -1,0 +1,5 @@
+
+youtube-transcript
+lucide-react
+clsx
+tailwind-merge

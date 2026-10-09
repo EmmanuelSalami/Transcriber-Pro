@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  # Redis service for job storage
+  redis:
+    image: redis:7-alpine
+    container_name: transcription-redis-dev
+    ports:
+      - "6379:6379"  # Exposed for development debugging
+    volumes:
+      - redis-data-dev:/data
+    env_file:
+      - .env
+    command:
+      - sh
+      - -c
+      - "if [ -z \"$$REDIS_PASSWORD\" ]; then echo 'ERROR: REDIS_PASSWORD must be set in .env file'; exit 1; fi; redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - transcription-network-dev
+
+  # Redis UI for viewing and managing Redis data
+  redis-ui:
+    image: rediscommander/redis-commander:latest
+    container_name: transcription-redis-ui-dev
+    hostname: redis-commander
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD}
+      - HTTP_USER=${REDIS_UI_USER}
+      - HTTP_PASSWORD=${REDIS_UI_PASSWORD}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - transcription-network-dev
+    restart: unless-stopped
+
+  # MinIO - S3-compatible object storage for local testing
+  minio:
+    image: minio/minio:latest
+    container_name: transcription-minio-dev
+    ports:
+      - "9000:9000"  # MinIO API
+      - "9001:9001"  # MinIO Console
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data-dev:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - transcription-network-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+
+  # Prometheus - Metrics collection and monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: transcription-prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data-dev:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - transcription-network-dev
+    restart: unless-stopped
+    depends_on:
+      - transcription-api
+
+  # Grafana - Metrics visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: transcription-grafana-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data-dev:/var/lib/grafana
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infrastructure/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - transcription-network-dev
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Development service with hot-reload and code volume mounts
+  transcription-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transcription-api-dev
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - RELOAD=true  # Development auto-reload (not in .env)
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+      - whisper-models-dev:/app/models/whisper
+      - ./temp_audio:/app/temp_audio
+      - ./temp_store:/app/temp_store
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - transcription-network-dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app --reload-include "*.py"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 2h
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  transcription-network-dev:
+    driver: bridge
+
+volumes:
+  redis-data-dev:
+  whisper-models-dev:
+  minio-data-dev:
+  prometheus-data-dev:
+  grafana-data-dev:
+

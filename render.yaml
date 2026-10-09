@@ -1,0 +1,40 @@
+# Transcriber - Single Service Blueprint (backend + frontend)
+# One starter plan. Add env vars when prompted (sync: false).
+
+services:
+  - type: web
+    name: transcriber
+    runtime: python
+    region: oregon
+    plan: starter
+    branch: main
+    buildCommand: pip install poetry && cd PR2-Sem19 && poetry lock && poetry install --no-root --only main && cd .. && npm install && npm run build
+    startCommand: bash scripts/start-render.sh
+    healthCheckPath: /
+    envVars:
+      - key: BACKEND_URL
+        value: http://localhost:8000
+      - key: RUNPOD_API_KEY
+        sync: false
+      - key: RUNPOD_ENDPOINT_ID
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: API_KEYS
+        sync: false
+      - key: WEBSHARE_API_KEY
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_REGION
+        value: us-east-1
+      - key: S3_ENABLED
+        value: "true"
+      - key: DEV_MODE
+        value: "false"
+      - key: NEXT_PUBLIC_API_KEY
+        sync: false

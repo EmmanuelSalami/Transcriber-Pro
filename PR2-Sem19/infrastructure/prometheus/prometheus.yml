@@ -1,0 +1,64 @@
+# Prometheus configuration for Transcription API monitoring
+# 
+# This configuration scrapes metrics from:
+# - Main API server (transcription-api) - REQUIRED
+# - RunPod workers are separate and don't expose metrics endpoints
+#   (they report status to the main API, which is tracked here)
+#
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'transcription-local'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Transcription API metrics endpoint
+  - job_name: 'transcription-api'
+    metrics_path: '/v1/metrics'
+    static_configs:
+      - targets: ['transcription-api:8000']
+        labels:
+          service: 'transcription-api'
+          environment: 'local'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Transcription API (dev variant)
+  - job_name: 'transcription-api-dev'
+    metrics_path: '/v1/metrics'
+    static_configs:
+      - targets: ['transcription-api-dev:8000']
+        labels:
+          service: 'transcription-api-dev'
+          environment: 'local-dev'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Transcription API (GPU variant)
+  - job_name: 'transcription-api-gpu'
+    metrics_path: '/v1/metrics'
+    static_configs:
+      - targets: ['transcription-api-gpu:8000']
+        labels:
+          service: 'transcription-api-gpu'
+          environment: 'local-gpu'
+    scrape_interval: 10s
+    scrape_timeout: 5s
